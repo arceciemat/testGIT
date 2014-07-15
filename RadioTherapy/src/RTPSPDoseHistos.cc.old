@@ -1,0 +1,602 @@
+#include "RTPSPDoseHistos.hh"
+#include "G4PhantomParameterisation.hh"
+#include "GamosCore/GamosReadDICOM/include/GmRegularParamUtils.hh"
+//#include "ReadPhantom/include/GmRegularParamUtils.hh"
+#include "GamosCore/GamosBase/Base/include/GmParameterMgr.hh"
+#include "GamosCore/GamosScoring/include/GmVPrimitiveScorer.hh"
+#include "GamosCore/GamosUtils/include/GmNumberOfEvent.hh"
+#include "GamosCore/GamosReadDICOM/include/GmSqdoseHeader.hh"
+#include "G4UIcommand.hh"
+
+//------------------------------------------------------------------
+RTPSPDoseHistos::RTPSPDoseHistos(G4String name, GmSqdoseHeader* doseh) :
+  GmVPSPrinter( name )
+{
+  theAnaMgr = GmAnalysisMgr::GetInstance("dose_"+name);
+  theDoseHeader = doseh;
+  BookHistos();
+
+  theNHistos = 0;
+
+}
+
+
+//------------------------------------------------------------------
+void RTPSPDoseHistos::BookHistos()
+{
+  
+  if( !theDoseHeader ){
+    theRegParam = GmRegularParamUtils::GetInstance()->GetPhantomParam();
+    theNVoxelX = G4int(theRegParam->GetNoVoxelX());
+    theNVoxelY = G4int(theRegParam->GetNoVoxelY());
+    theNVoxelZ = G4int(theRegParam->GetNoVoxelZ());
+    theDimX = theRegParam->GetVoxelHalfX();
+    theDimY = theRegParam->GetVoxelHalfY();
+    theDimZ = theRegParam->GetVoxelHalfZ();
+    thePhantomTranslation = GmRegularParamUtils::GetInstance()->GetPhantomTranslation();
+  } else {
+    theNVoxelX = G4int(theDoseHeader->GetNoVoxelX());
+    theNVoxelY = G4int(theDoseHeader->GetNoVoxelY());
+    theNVoxelZ = G4int(theDoseHeader->GetNoVoxelZ());
+    theDimX = theDoseHeader->GetVoxelHalfX();
+    theDimY = theDoseHeader->GetVoxelHalfY();
+    theDimZ = theDoseHeader->GetVoxelHalfZ();
+    thePhantomTranslation = theDoseHeader->GetTranslation();
+  }
+  G4cout << " nvoxel " << theNVoxelX << " " << theNVoxelY << " " << theNVoxelZ << G4endl;
+  G4cout << " dim " << theDimX << " " << theDimY << " " << theDimZ << G4endl;
+  G4cout << " transl " <<  thePhantomTranslation<< G4endl;
+
+  double doseMin = GmParameterMgr::GetInstance()->GetNumericValue("RTPSPDoseHistos:DoseMin",-17);
+  double doseMax = GmParameterMgr::GetInstance()->GetNumericValue("RTPSPDoseHistos:DoseMax",-12);
+  //--- define dose - volume histo
+  //  theAnaMgr->CreateHisto2D("RTPSPDoseHistos: Dose-volume",200, int(log10(minDose)),int(log10(maxDose))+1.,36021);
+  theAnaMgr->CreateHisto1D("RTPSPDoseHistos: Dose",100,doseMin,doseMax,36201);
+  theAnaMgr->CreateHisto1D("RTPSPDoseHistos: Dose-volume",100,doseMin,doseMax,36202);
+    
+}
+
+//------------------------------------------------------------------
+void RTPSPDoseHistos::CheckHistoLimits( G4int nXmin, G4int nXmax, G4int nYmin, G4int nYmax, G4int nZmin, G4int nZmax )
+{
+  if( nXmin < 0 ) {
+    G4Exception("RTPSPDoseHistos::FillHisto",
+		"X min too small",
+		JustWarning,
+		G4String(G4UIcommand::ConvertToString(nXmin)+" < "
+			 +G4UIcommand::ConvertToString(0)).c_str());
+    nXmin = 0;
+  }
+  if( nXmax >= theNVoxelX ) {
+    G4Exception("RTPSPDoseHistos::FillHisto",
+		"X max too big",
+		JustWarning,
+		G4String(G4UIcommand::ConvertToString(nXmax)+" >= "
+			 +G4UIcommand::ConvertToString(theNVoxelX)).c_str());
+    nXmax = theNVoxelX-1;
+  }
+  if( nYmin < 0 ) {
+    G4Exception("RTPSPDoseHistos::FillHisto",
+		"Y min too small",
+		JustWarning,
+		G4String(G4UIcommand::ConvertToString(nYmin)+" < "
+			 +G4UIcommand::ConvertToString(0)).c_str());
+    nYmin = 0;
+  }
+  if( nYmax >= theNVoxelY ) {
+    G4Exception("RTPSPDoseHistos::FillHisto",
+		"Y max too big",
+		JustWarning,
+		G4String(G4UIcommand::ConvertToString(nYmax)+" >= "
+			 +G4UIcommand::ConvertToString(theNVoxelY)).c_str());
+    nYmax = theNVoxelY-1;
+  }
+  if( nZmin < 0 ) {
+    G4Exception("RTPSPDoseHistos::FillHisto",
+		"Z min too small",
+		JustWarning,
+		G4String(G4UIcommand::ConvertToString(nZmin)+" < "
+			 +G4UIcommand::ConvertToString(0)).c_str());
+    nZmin = 0;
+  }
+  if( nZmax >= theNVoxelZ ) {
+    G4Exception("RTPSPDoseHistos::FillHisto",
+		"Z max too big",
+		JustWarning,
+		G4String(G4UIcommand::ConvertToString(nZmax)+" >= "
+			 +G4UIcommand::ConvertToString(theNVoxelZ)).c_str());
+    nZmax = theNVoxelZ-1;
+  }
+}
+
+
+//------------------------------------------------------------------
+void RTPSPDoseHistos::FillHisto( std::vector<G4String>& wl )
+{
+  if( wl[1] == "Profile1N_X") {
+    FillHisto1N_X(wl);
+  }else if( wl[1] == "Profile1N_Y") {
+    FillHisto1N_Y(wl);
+  }else if( wl[1] == "Profile1N_Z") {
+    FillHisto1N_Z(wl);
+  }else if( wl[1] == "Profile2N_XY") {
+    FillHisto2N_XY(wl);
+  }else if( wl[1] == "Profile2N_XZ") {
+    FillHisto2N_XZ(wl);
+  }else if( wl[1] == "Profile2N_YZ") {
+    FillHisto2N_YZ(wl);
+  }    
+
+}
+
+
+//------------------------------------------------------------------
+void RTPSPDoseHistos::FillHisto1N_X( std::vector<G4String>& wl  )
+{
+  G4int nXmin = G4UIcommand::ConvertToInt(wl[2]);
+  G4int nXmax = G4UIcommand::ConvertToInt(wl[3]);
+  G4int nYmin = G4UIcommand::ConvertToInt(wl[4]);
+  G4int nYmax = G4UIcommand::ConvertToInt(wl[5]);
+  G4int nZmin = G4UIcommand::ConvertToInt(wl[6]);
+  G4int nZmax = G4UIcommand::ConvertToInt(wl[7]);
+  G4String hisName = wl[0];
+
+  CheckHistoLimits( nXmin, nXmax, nYmin, nYmax, nZmin, nZmax );
+  FillHisto1N_X( hisName, nXmin, nXmax, nYmin, nYmax, nZmin, nZmax );
+
+}
+
+//------------------------------------------------------------------
+void RTPSPDoseHistos::FillHisto1N_Y( std::vector<G4String>& wl  )
+{
+  G4int nXmin = G4UIcommand::ConvertToInt(wl[4]);
+  G4int nXmax = G4UIcommand::ConvertToInt(wl[5]);
+  G4int nYmin = G4UIcommand::ConvertToInt(wl[2]);
+  G4int nYmax = G4UIcommand::ConvertToInt(wl[3]);
+  G4int nZmin = G4UIcommand::ConvertToInt(wl[6]);
+  G4int nZmax = G4UIcommand::ConvertToInt(wl[7]);
+  G4String hisName = wl[0];
+
+  CheckHistoLimits( nXmin, nXmax, nYmin, nYmax, nZmin, nZmax );
+  FillHisto1N_Y( hisName, nYmin, nYmax, nXmin, nXmax, nZmin, nZmax );
+
+}
+
+//------------------------------------------------------------------
+void RTPSPDoseHistos::FillHisto1N_Z( std::vector<G4String>& wl  )
+{
+  G4int nXmin = G4UIcommand::ConvertToInt(wl[4]);
+  G4int nXmax = G4UIcommand::ConvertToInt(wl[5]);
+  G4int nYmin = G4UIcommand::ConvertToInt(wl[6]);
+  G4int nYmax = G4UIcommand::ConvertToInt(wl[7]);
+  G4int nZmin = G4UIcommand::ConvertToInt(wl[2]);
+  G4int nZmax = G4UIcommand::ConvertToInt(wl[3]);
+  G4String hisName = wl[0];
+
+  CheckHistoLimits( nXmin, nXmax, nYmin, nYmax, nZmin, nZmax );
+  FillHisto1N_Z( hisName, nZmin, nZmax, nXmin, nXmax, nYmin, nYmax );
+
+}
+
+ 
+//------------------------------------------------------------------
+void RTPSPDoseHistos::FillHisto1N_X( const G4String& hisName, G4int nXmin, G4int nXmax, G4int nYmin, G4int nYmax, G4int nZmin, G4int nZmax )
+{ 
+  theNHistos++;
+  G4int ih = 66300+theNHistos;
+  theAnaMgr->CreateHisto1D(hisName.c_str(),nXmax-nXmin+1,ConvertN2DimX(nXmin)-theDimX,ConvertN2DimX(nXmax)+theDimX,ih);
+
+  GmHisto1* his = theAnaMgr->GetHisto1( ih );
+
+  G4double dose, doseError;
+  for( G4int ix = nXmin; ix <= nXmax; ix++ ){
+    dose = 0.;
+    doseError = 0.;
+    G4double hx = ConvertN2DimX(ix);
+    for( G4int iy = nYmin; iy <= nYmax; iy++ ){
+      for( G4int iz = nZmin; iz <= nZmax; iz++ ){
+	G4int copyNo = ix + iy * theNVoxelX + iz * theNVoxelX * theNVoxelY;
+	if( theMap[copyNo] != 0 ) {
+	  G4double val = *(theMap[copyNo])*theNevInv*theUnitInv;
+	  G4double error = theScorer->GetError( copyNo )*theUnitInv;
+	  dose += val;
+	  doseError += error*error;
+	  //	  G4cout << " FILLX " << copyNo << " " << ix << " " << iy << " " << iz << " val " << val << " dose " << dose << " +- " << sqrt(doseError) << G4endl;
+	}
+      }
+    }
+    his->Fill( hx, dose );
+    //    G4cout << " HX " << hx << " " << dose << G4endl;
+    //    his->SetBinError(iz, sqrt(doseError) );
+  }
+  
+}
+
+//------------------------------------------------------------------
+void RTPSPDoseHistos::FillHisto1N_Y( const G4String& hisName, G4int nYmin, G4int nYmax, G4int nXmin, G4int nXmax, G4int nZmin, G4int nZmax )
+{ 
+  theNHistos++;
+  G4int ih = 66300+theNHistos;
+  theAnaMgr->CreateHisto1D(hisName.c_str(),nYmax-nYmin+1,ConvertN2DimY(nYmin)-theDimY,ConvertN2DimY(nYmax)+theDimY,ih);
+
+  GmHisto1* his = theAnaMgr->GetHisto1( ih );
+
+  G4double dose, doseError;
+  for( G4int iy = nYmin; iy <= nYmax; iy++ ){
+    dose = 0.;
+    doseError = 0.;
+    G4double hy = ConvertN2DimY(iy);
+    for( G4int ix = nXmin; ix <= nXmax; ix++ ){
+      for( G4int iz = nZmin; iz <= nZmax; iz++ ){
+	G4int copyNo = ix + iy * theNVoxelX + iz * theNVoxelX * theNVoxelY;
+	if( theMap[copyNo] != 0 ) {
+	  G4double val = *(theMap[copyNo])*theNevInv*theUnitInv;
+	  G4double error = theScorer->GetError( copyNo )*theUnitInv;
+	  dose += val;
+	  doseError += error*error;
+	  //	  G4cout << " FILLY " << copyNo << " " << iy << " " << ix << " " << iy << " val " << val << " dose " << dose << " +- " << sqrt(doseError) << G4endl;
+	}
+      }
+    }
+    his->Fill( hy, dose );
+    //    G4cout << " HY " << hy << " " << dose << G4endl;
+    //    his->SetBinError(iy, sqrt(doseError) );
+  }
+  
+}
+
+
+//------------------------------------------------------------------
+void RTPSPDoseHistos::FillHisto1N_Z( const G4String& hisName, G4int nZmin, G4int nZmax, G4int nXmin, G4int nXmax, G4int nYmin, G4int nYmax )
+{ 
+  theNHistos++;
+  G4int ih = 66300+theNHistos;
+  theAnaMgr->CreateHisto1D(hisName.c_str(),nZmax-nZmin+1,ConvertN2DimZ(nZmin)-theDimZ,ConvertN2DimZ(nZmax)+theDimZ,ih);
+
+  GmHisto1* his = theAnaMgr->GetHisto1( ih );
+
+  G4double dose, doseError;
+  for( G4int iz = nZmin; iz <= nZmax; iz++ ){
+    dose = 0.;
+    doseError = 0.;
+    G4double hz = ConvertN2DimZ(iz);
+    for( G4int ix = nXmin; ix <= nXmax; ix++ ){
+      for( G4int iy = nYmin; iy <= nYmax; iy++ ){
+	G4int copyNo = ix + iy * theNVoxelX + iz * theNVoxelX * theNVoxelY;
+	if( theMap[copyNo] != 0 ) {
+	  G4double val = *(theMap[copyNo])*theNevInv*theUnitInv;
+	  G4double error = theScorer->GetError( copyNo )*theUnitInv;
+	  dose += val;
+	  doseError += error*error;
+	  //	  G4cout << " FILLZ " << copyNo << " " << iz << " " << ix << " " << iy << " val " << val << " dose " << dose << " +- " << sqrt(doseError) << G4endl;
+	}
+      }
+    }
+    his->Fill( hz, dose );
+    //    G4cout << " HZ " << hz << " " << dose << G4endl;
+    //    his->SetBinError(iz, sqrt(doseError) );
+  }
+  
+}
+
+
+//------------------------------------------------------------------
+void RTPSPDoseHistos::FillHisto2N_XY( std::vector<G4String>& wl  )
+{
+  G4int nXmin = G4UIcommand::ConvertToInt(wl[2]);
+  G4int nXmax = G4UIcommand::ConvertToInt(wl[3]);
+  G4int nYmin = G4UIcommand::ConvertToInt(wl[4]);
+  G4int nYmax = G4UIcommand::ConvertToInt(wl[5]);
+  G4int nZmin = G4UIcommand::ConvertToInt(wl[6]);
+  G4int nZmax = G4UIcommand::ConvertToInt(wl[7]);
+  G4String hisName = wl[0];
+
+  CheckHistoLimits( nXmin, nXmax, nYmin, nYmax, nZmin, nZmax );
+  FillHisto2N_XY( hisName, nXmin, nXmax, nYmin, nYmax, nZmin, nZmax );
+
+}
+
+//------------------------------------------------------------------
+void RTPSPDoseHistos::FillHisto2N_XZ( std::vector<G4String>& wl  )
+{
+  G4int nXmin = G4UIcommand::ConvertToInt(wl[2]);
+  G4int nXmax = G4UIcommand::ConvertToInt(wl[3]);
+  G4int nYmin = G4UIcommand::ConvertToInt(wl[6]);
+  G4int nYmax = G4UIcommand::ConvertToInt(wl[7]);
+  G4int nZmin = G4UIcommand::ConvertToInt(wl[4]);
+  G4int nZmax = G4UIcommand::ConvertToInt(wl[5]);
+  G4String hisName = wl[0];
+
+  CheckHistoLimits( nXmin, nXmax, nYmin, nYmax, nZmin, nZmax );
+  FillHisto2N_XZ( hisName, nXmin, nXmax, nZmin, nZmax, nYmin, nYmax );
+
+}
+
+//------------------------------------------------------------------
+void RTPSPDoseHistos::FillHisto2N_YZ( std::vector<G4String>& wl  )
+{
+  G4int nXmin = G4UIcommand::ConvertToInt(wl[6]);
+  G4int nXmax = G4UIcommand::ConvertToInt(wl[7]);
+  G4int nYmin = G4UIcommand::ConvertToInt(wl[2]);
+  G4int nYmax = G4UIcommand::ConvertToInt(wl[3]);
+  G4int nZmin = G4UIcommand::ConvertToInt(wl[4]);
+  G4int nZmax = G4UIcommand::ConvertToInt(wl[5]);
+  G4String hisName = wl[0];
+
+  CheckHistoLimits( nXmin, nXmax, nYmin, nYmax, nZmin, nZmax );
+  FillHisto2N_YZ( hisName, nYmin, nYmax, nZmin, nZmax, nXmin, nXmax );
+
+}
+
+//------------------------------------------------------------------
+void RTPSPDoseHistos::FillHisto2N_XY( const G4String& hisName, G4int nXmin, G4int nXmax, G4int nYmin, G4int nYmax, G4int nZmin, G4int nZmax )
+{ 
+  theNHistos++;
+  G4int ih = 66300+theNHistos;
+  theAnaMgr->CreateHisto2D(hisName.c_str(),
+			   nXmax-nXmin+1,ConvertN2DimX(nXmin)-theDimX,ConvertN2DimX(nXmax)+theDimX,
+			   nYmax-nYmin+1,ConvertN2DimY(nYmin)-theDimY,ConvertN2DimY(nYmax)+theDimY,ih);
+  GmHisto2* his = theAnaMgr->GetHisto2( ih );
+
+  G4double dose, doseError;
+  for( G4int ix = nXmin; ix <= nXmax; ix++ ){
+    G4double hx = ConvertN2DimX(ix);
+    for( G4int iy = nYmin; iy <= nYmax; iy++ ){
+      dose = 0.;
+      doseError = 0.;
+      G4double hy = ConvertN2DimY(iy);
+      for( G4int iz = nZmin; iz <= nZmax; iz++ ){
+	G4int copyNo = ix + iy * theNVoxelX + iz * theNVoxelX * theNVoxelY;
+	if( theMap[copyNo] != 0 ) {
+	  G4double val = *(theMap[copyNo])*theNevInv*theUnitInv;
+	  G4double error = theScorer->GetError( copyNo )*theUnitInv;
+	  dose += val;
+	  doseError += error*error;
+	  //	  G4cout << " FILLX " << copyNo << " " << ix << " " << iy << " " << iz << " val " << val << " dose " << dose << " +- " << sqrt(doseError) << G4endl;
+	}
+      }
+      his->Fill( hx, hy, dose );
+    }
+    //    G4cout << " HX " << hx << " " << dose << G4endl;
+    //    his->SetBinError(iz, sqrt(doseError) );
+  }
+  
+}
+
+//------------------------------------------------------------------
+void RTPSPDoseHistos::FillHisto2N_XZ( const G4String& hisName, G4int nXmin, G4int nXmax, G4int nZmin, G4int nZmax, G4int nYmin, G4int nYmax )
+{ 
+  theNHistos++;
+  G4int ih = 66300+theNHistos;
+  theAnaMgr->CreateHisto2D(hisName.c_str(),
+			   nXmax-nXmin+1,ConvertN2DimX(nXmin)-theDimX,ConvertN2DimX(nXmax)+theDimX,
+			   nZmax-nZmin+1,ConvertN2DimZ(nZmin)-theDimZ,ConvertN2DimZ(nZmax)+theDimZ,ih);
+  GmHisto2* his = theAnaMgr->GetHisto2( ih );
+
+  G4double dose, doseError;
+  for( G4int ix = nXmin; ix <= nXmax; ix++ ){
+    G4double hx = ConvertN2DimX(ix);
+    for( G4int iz = nZmin; iz <= nZmax; iz++ ){
+      dose = 0.;
+      doseError = 0.;
+      G4double hz = ConvertN2DimZ(iz);
+      for( G4int iy = nYmin; iy <= nYmax; iy++ ){
+	G4int copyNo = ix + iy * theNVoxelX + iz * theNVoxelX * theNVoxelY;
+	if( theMap[copyNo] != 0 ) {
+	  G4double val = *(theMap[copyNo])*theNevInv*theUnitInv;
+	  G4double error = theScorer->GetError( copyNo )*theUnitInv;
+	  dose += val;
+	  doseError += error*error;
+	  //	  G4cout << " FILLX " << copyNo << " " << ix << " " << iy << " " << iz << " val " << val << " dose " << dose << " +- " << sqrt(doseError) << G4endl;
+	}
+      }
+      his->Fill( hx, hz, dose );
+    }
+    //    G4cout << " HX " << hx << " " << dose << G4endl;
+    //    his->SetBinError(iz, sqrt(doseError) );
+  }
+  
+}
+
+//------------------------------------------------------------------
+void RTPSPDoseHistos::FillHisto2N_YZ( const G4String& hisName, G4int nYmin, G4int nYmax, G4int nZmin, G4int nZmax, G4int nXmin, G4int nXmax )
+{ 
+  theNHistos++;
+  G4int ih = 66300+theNHistos;
+  theAnaMgr->CreateHisto2D(hisName.c_str(),
+			   nYmax-nYmin+1,ConvertN2DimY(nYmin)-theDimY,ConvertN2DimY(nYmax)+theDimY,
+			   nZmax-nZmin+1,ConvertN2DimZ(nZmin)-theDimZ,ConvertN2DimZ(nZmax)+theDimZ,ih);
+  GmHisto2* his = theAnaMgr->GetHisto2( ih );
+
+  G4double dose, doseError;
+  for( G4int iy = nYmin; iy <= nYmax; iy++ ){
+    G4double hy = ConvertN2DimY(iy);
+    for( G4int iz = nZmin; iz <= nZmax; iz++ ){
+      dose = 0.;
+      doseError = 0.;
+      G4double hz = ConvertN2DimZ(iz);
+      for( G4int ix = nXmin; ix <= nXmax; ix++ ){
+	G4int copyNo = ix + iy * theNVoxelX + iz * theNVoxelX * theNVoxelY;
+	if( theMap[copyNo] != 0 ) {
+	  G4double val = *(theMap[copyNo])*theNevInv*theUnitInv;
+	  G4double error = theScorer->GetError( copyNo )*theUnitInv;
+	  dose += val;
+	  doseError += error*error;
+	  //	  G4cout << " FILLX " << copyNo << " " << ix << " " << iy << " " << iz << " val " << val << " dose " << dose << " +- " << sqrt(doseError) << G4endl;
+	}
+      }
+      his->Fill( hy, hz, dose );
+    }
+    //    G4cout << " HX " << hx << " " << dose << G4endl;
+    //    his->SetBinError(iz, sqrt(doseError) );
+  }
+  
+}
+
+
+
+//------------------------------------------------------------------
+G4double RTPSPDoseHistos::ConvertN2DimX(G4int nX)
+{
+  //G4cout << "  ConvertN2DimX " << nX << " -> " << (-theNVoxelX+2*nX+1)*theDimX + thePhantomTranslation.x() << G4endl;
+  return (-theNVoxelX+2*nX+1)*theDimX + thePhantomTranslation.x();
+}
+
+//------------------------------------------------------------------
+G4double RTPSPDoseHistos::ConvertN2DimY(G4int nY)
+{
+  //G4cout << "  ConvertN2DimY " << nY << " -> " << (-theNVoxelY+2*nY+1)*theDimY + thePhantomTranslation.y() << G4endl;
+  return (-theNVoxelY+2*nY+1)*theDimY + thePhantomTranslation.y();
+}
+
+//------------------------------------------------------------------
+G4double RTPSPDoseHistos::ConvertN2DimZ(G4int nZ)
+{
+  //G4cout << "  ConvertN2DimZ " << nZ << " -> " << (-theNVoxelZ+2*nZ+1)*theDimZ + thePhantomTranslation.z() << G4endl;
+  return (-theNVoxelZ+2*nZ+1)*theDimZ + thePhantomTranslation.z();
+}
+
+/*
+//------------------------------------------------------------------
+G4int RTPSPDoseHistos::ConvertDim2NZ(G4double dimZ)
+{
+  G4cout << "  ConvertDim2NZ " << dimZ << " -> " << G4int(((dimZ - thePhantomTranslation.z())/theDimZ + theNVoxelZ-1 ) / 2) << G4endl;
+  return G4int(((dimZ - thePhantomTranslation.z())/theDimZ + theNVoxelZ-1 ) / 2);
+}
+*/
+
+
+//------------------------------------------------------------------
+void RTPSPDoseHistos::DumpAll( G4THitsMap<G4double>* RunMap, GmVPrimitiveScorer* scorer )
+{
+  theScorer = scorer;
+  theMap = *(RunMap->GetMap());
+
+  //----- Get minimum and maximum dose
+  G4double minDose = 1.E99;
+  G4double maxDose = 0.;
+  theUnitInv = 1./theScorer->GetUnit();
+  theNevInv = 1./GmNumberOfEvent::GetNumberOfEvent();
+  std::map<G4int,G4double*>::iterator ite;
+  for(ite = RunMap->GetMap()->begin(); ite != RunMap->GetMap()->end(); ite++){
+    G4double val = *(ite->second);
+    if( val == 0) continue;
+    if( val < minDose ) minDose = val;
+    if( val > maxDose ) maxDose = val;
+  }  
+  minDose *= theUnitInv*theNevInv;
+  maxDose *= theUnitInv*theNevInv;
+  G4cout << " MINIMUM DOSE " << minDose << G4endl;
+  G4cout << " MAXIMUM DOSE " << maxDose << G4endl;
+//--- Average errors
+  G4double theF20 = 0.;
+  G4double theF50 = 0.;
+  G4double theF90 = 0.;
+  G4double theDose20 = maxDose*0.2;
+  G4double theDose50 = maxDose*0.5;
+  G4double theDose90 = maxDose*0.9;
+  G4int theN20 = 0;
+  G4int theN50 = 0;
+  G4int theN90 = 0;
+  //  G4cout << " RTPSPDoseHistos::DumpAll  entries " << RunMap->entries() << G4endl;
+
+  if( !theDoseHeader ){
+    theRegParam = GmRegularParamUtils::GetInstance()->GetPhantomParam();
+    theNVoxelX = G4int(theRegParam->GetNoVoxelX());
+    theNVoxelY = G4int(theRegParam->GetNoVoxelY());
+    theNVoxelZ = G4int(theRegParam->GetNoVoxelZ());
+    theDimX = theRegParam->GetVoxelHalfX();
+    theDimY = theRegParam->GetVoxelHalfY();
+    theDimZ = theRegParam->GetVoxelHalfZ();
+
+  } else {
+    theNVoxelX = G4int(theDoseHeader->GetNoVoxelX());
+    theNVoxelY = G4int(theDoseHeader->GetNoVoxelY());
+    theNVoxelZ = G4int(theDoseHeader->GetNoVoxelZ());
+    theDimX = theDoseHeader->GetVoxelHalfX();
+    theDimY = theDoseHeader->GetVoxelHalfY();
+    theDimZ = theDoseHeader->GetVoxelHalfZ();
+  }
+  //---- Get nz for Z of dose maximum
+  // ite += theNVoxelX/2 + theNVoxelX*theNVoxelY/2; // centre voxel in X & Y
+  G4int nzMaxDose = 0;
+  G4double maxDoseZ = 0.;
+  //  for(; ite != RunMap->GetMap()->end(); ite+=theNVoxelX*theNVoxelY){
+  for( ite = RunMap->GetMap()->begin(); ite != RunMap->GetMap()->end(); ite++){
+    G4int copyNo = ite->first;
+    G4int nx = size_t(copyNo%theNVoxelX);
+    G4int ny = size_t( (copyNo/theNVoxelX)%theNVoxelY );
+    if( nx == theNVoxelX/2 && ny == theNVoxelY/2 ) {
+      if( *(ite->second) > maxDoseZ ){
+	maxDoseZ = *(ite->second);
+	nzMaxDose = ite->first/(theNVoxelX*theNVoxelY);
+      }
+    }
+  }
+  //---- Get nz for Z of dose maximum and nz at Z=50, 100 & 150 mm
+  GmHisto1* hisDV = theAnaMgr->GetHisto1D(36202);
+  
+  for( ite = RunMap->GetMap()->begin(); ite != RunMap->GetMap()->end(); ite++){
+    //    G4int copyNo = ite->first;
+    //    G4int nx = size_t(copyNo%theNVoxelX);
+    //    G4int ny = size_t( (copyNo/theNVoxelX)%theNVoxelY );
+    //    G4int nz = size_t(copyNo/(theNVoxelX*theNVoxelY));
+    //    G4cout << " RTPSPDoseHistos::DumpAll copyNo " << copyNo << " " << nx << " " << ny << " " << nz << G4endl;
+    
+    G4double val = *(ite->second)*theNevInv*theUnitInv;
+    //    G4double error = theScorer->GetError( (*ite).first )*theUnitInv;
+    
+    G4double log10val = log10(val);
+    theAnaMgr->GetHisto1D(36201)->Fill(log10val);
+
+    for( G4int ih = 1; ih < hisDV->GetNbinsX(); ih++ ){
+      if( hisDV->GetBinLowEdge(ih) < log10val ) {
+	hisDV->SetBinContent(ih, hisDV->GetBinContent(ih)+1 );
+      }
+    }
+    
+    if( val > theDose20 ) {
+      theF20 += (theScorer->GetError( (*ite).first )*theUnitInv)/val;
+      theN20++;
+      //      G4cout << theN20 << "F20 " << theF20 << " val " << val << " /" << theScorer->GetError( (*ite).first )*theUnitInv << " error " << theScorer->GetError( (*ite).first ) << " index " << (*ite).first << G4endl;
+    }
+    if( val > theDose50 ) {
+      theF50 += (theScorer->GetError( (*ite).first )*theUnitInv)/val;
+      theN50++;
+    }
+    if( val > theDose90 ) {
+      theF90 += (theScorer->GetError( (*ite).first )*theUnitInv)/val;
+      theN90++;
+      // G4cout << copyNo << " F90 " << theF90 << " N90 " << theN90 << " " << theScorer->GetError( (*ite).first )*theUnitInv << " " <<  val << G4endl;
+    }
+  }
+  
+  G4cout << theScorer->GetName() << " AVERAGE ERROR 20% = " << theF20/theN20 << G4endl;
+  G4cout << theScorer->GetName() << " AVERAGE ERROR 50% = " << theF50/theN50 << G4endl;
+  G4cout << theScorer->GetName() << " AVERAGE ERROR 90% = " << theF90/theN90 << G4endl;
+  
+  FillHisto1N_X("RTPSPDoseHistos:Dose Profile X_merged",0,theNVoxelX-1,0,theNVoxelY-1,0,theNVoxelZ-1);
+  FillHisto1N_Y("RTPSPDoseHistos:Dose Profile Y_merged",0,theNVoxelY-1,0,theNVoxelX-1,0,theNVoxelZ-1);
+  FillHisto1N_Z("RTPSPDoseHistos:PDD_mergedd",0,theNVoxelZ-1,0,theNVoxelX-1,0,theNVoxelY-1);
+
+  FillHisto2N_XY("RTPSPDoseHistos:Dose XY_merged",0,theNVoxelX-1,0,theNVoxelY-1,0,theNVoxelZ-1);
+  FillHisto2N_XZ("RTPSPDoseHistos:Dose XZ_merged",0,theNVoxelX-1,0,theNVoxelZ-1,0,theNVoxelY-1);
+  FillHisto2N_YZ("RTPSPDoseHistos:Dose YZ_merged",0,theNVoxelY-1,0,theNVoxelZ-1,0,theNVoxelX-1);
+
+
+}
+
+
+//------------------------------------------------------------------
+void RTPSPDoseHistos::FillHisto1( GmHisto1* his, G4int ibin, G4double val, G4double error )
+{
+  G4bool bData = true;
+  G4double herror = 0.;
+  if( his->GetBinContent(ibin+1) == 0.) {
+    bData = false;
+  }else{
+    herror = his->GetBinError(ibin+1);
+  } 
+  his->SetBinContent(ibin+1, his->GetBinContent(ibin+1)+val);
+  his->SetBinError(ibin+1, sqrt(herror*herror+error*error) );
+}

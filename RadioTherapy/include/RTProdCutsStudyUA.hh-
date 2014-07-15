@@ -1,0 +1,17 @@
+#ifndef __RTProdCutsStudyUA__
+#define __RTProdCutsStudyUA__
+
+#include "GamosCore/GamosPhysics/GamosCuts/include/GmVProdCutsStudyUA.hh"
+
+class RTProdCutsStudyUA : public GmVProdCutsStudyUA
+{
+public:
+  RTProdCutsStudyUA();
+  ~RTProdCutsStudyUA(){}; 
+  virtual void BuildFilter();
+
+protected:
+
+};
+
+#endif
